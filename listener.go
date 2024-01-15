@@ -1,11 +1,12 @@
 package kcp2k
 
 import (
+	"github.com/0990/kcp-go"
 	"github.com/0990/kcp2k-go/pkg/syncx"
 	"github.com/pkg/errors"
-	"github.com/xtaci/kcp-go/v5"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -20,7 +21,7 @@ const (
 type Listener struct {
 	conn net.PacketConn
 
-	kcpConn *KcpServerConn
+	kcpConn *KcpUnderlyingConn
 
 	sessions syncx.Map[string, *Session]
 
@@ -54,7 +55,15 @@ func ListenWithOptions(laddr string) (*Listener, error) {
 func serveConn(conn net.PacketConn) (*Listener, error) {
 	l := new(Listener)
 	l.conn = conn
-	l.kcpConn = newKcpServerConn(conn, l)
+	l.kcpConn = newKcpUnderlyingConn(conn, func(addr net.Addr) (KCPOutput, error) {
+		sess, ok := l.sessions.Load(addr.String())
+		if !ok {
+			return nil, errors.New("no session")
+		}
+		return sess, nil
+	})
+	l.listenKCP()
+
 	l.chAccepts = make(chan *Session, acceptBacklog)
 	l.chSessionClosed = make(chan net.Addr)
 	l.die = make(chan struct{})
@@ -76,7 +85,12 @@ func (l *Listener) listenKCP() (*kcp.Listener, error) {
 			if err != nil {
 				log.Fatal(err)
 			}
-			go l.handleNewKcp(s)
+			go func() {
+				err := l.handleNewKcp(s)
+				if err != nil {
+					slog.Warn("handleNewKcp error", "error", err)
+				}
+			}()
 		}
 	}()
 	return kcpListener, nil
@@ -90,36 +104,24 @@ func (l *Listener) handleNewKcp(sess *kcp.UDPSession) error {
 		return errors.New("s==nil")
 	}
 
-	ok := s.AcceptKcp(sess)
+	ok := s.SetKcpSession(sess)
 	if !ok {
 		l.sessions.Delete(addr)
 		return errors.New("s.kcpSess!=nil")
 	}
 
-	//握手
-	sess.SetReadDeadline(time.Now().Add(time.Second * 5))
-	packet := ReadPacket(s.kcpSess)
-	sess.SetReadDeadline(time.Time{})
-
-	opCode, _, err := parseKcp2kBodyData(packet)
+	err := s.Run()
 	if err != nil {
 		return err
 	}
-
-	if opCode != Hello {
-		return errors.New("not hello")
-	}
-
-	s.SetState(Authenticated)
-	s.l.chAccepts <- s
 	return nil
 }
 
-func ReadPacket(session *kcp.UDPSession) []byte {
-	return nil
+func ReadPacket(session *kcp.UDPSession) ([]byte, error) {
+	return session.ReadPacket()
 }
 
-func (l *Listener) Accep() (*Session, error) {
+func (l *Listener) Accept() (*Session, error) {
 	var timeout <-chan time.Time
 	if tdeadline, ok := l.rd.Load().(time.Time); ok && !tdeadline.IsZero() {
 		timeout = time.After(time.Until(tdeadline))

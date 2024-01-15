@@ -7,56 +7,56 @@ import (
 )
 
 const (
-	kcp2kHeaderSize = 5
+	headerSize = 5
 )
 
-type Kcp2kChannel byte
+type Channel byte
 
 const (
-	Invalid    Kcp2kChannel = 0
-	Reliable   Kcp2kChannel = 1
-	Unreliable Kcp2kChannel = 2
+	Invalid    Channel = 0
+	Reliable   Channel = 1
+	Unreliable Channel = 2
 )
 
 // 原始udp数据输入
 func (l *Listener) packetInput(data []byte, addr net.Addr) {
-	if len(data) < kcp2kHeaderSize {
+	if len(data) < headerSize {
 		return
 	}
 
 	addrStr := addr.String()
 	s, _ := l.sessions.Load(addrStr)
 
-	var channel = Kcp2kChannel(data[0])
-	var cookie = data[1:kcp2kHeaderSize]
+	var channel = Channel(data[0])
+	var cookie = data[1:headerSize]
 	if s != nil {
 		err := s.CheckCookie(cookie)
 		if err != nil {
-			slog.With(err).Warn("invalid cookie")
+			slog.Warn("invalid cookie", "error", err)
 			return
 		}
 	}
 
 	switch channel {
 	case Reliable:
-		kcpData := data[kcp2kHeaderSize:]
+		kcpData := data[headerSize:]
 		l.kcpConn.packetInput(kcpData, addr)
 
 		if s == nil {
-			s := newSession(l, util.RandBytes(4), addr)
+			s := newSession(util.RandBytes(4), l, l.conn, false, addr)
 			l.sessions.Store(addrStr, s)
 
 			s.WaitAcceptKCP(func(err error) {
 				if err != nil {
 					s.Close()
-					slog.Warn("handshake failed: %v", err)
+					slog.Warn("handshake failed", "error", err)
 					return
 				}
 			})
 		}
 	case Unreliable:
 		if s != nil {
-			s.onRawInputUnreliable(data[kcp2kHeaderSize:])
+			s.onRawInputUnreliable(data[headerSize:])
 		}
 		return
 	default:
