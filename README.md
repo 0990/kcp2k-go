@@ -1,62 +1,61 @@
 # kcp2k-go
+[中文文档](doc/README_zh.md)<br>
+A Golang implementation of Mirror kcp ([kcp2k](https://github.com/MirrorNetworking/kcp2k))<br>
+Ready to use, can communicate directly with Mirror kcp
 
-a golang implementation of Mirror kcp([kcp2k](https://github.com/MirrorNetworking/kcp2k))<br>
-开箱即用，可直接和Mirror kcp通信
+## Introduction
+The kcp2k included with the Mirror game framework customizes a communication protocol based on the underlying kcp protocol<br>
+Main feature comparison:
 
-## 说明
-mirror游戏框架自带的kcp是在kcp协议底层基础上自定义了一套通信协议<br>
-主要特性对比：
-
-|            | 传输特性       | 握手和关闭|
-|------------|------------|------------|
-| Mirror KCP | 支持可靠和非可靠传输 | 支持|
-| KCP        | 支持可靠传输     | 不支持|
+|       | Transmission Features | Handshake and Close |
+|-------|----------------------|---------------------|
+| KCP2K | Supports reliable and unreliable transmission | Supported |
+| KCP   | Supports reliable transmission only     | Not Supported |
 
 ## Examples
 [simple example](./example/simple/main.go)
 
-## 编码
-在原传输包文基础上增加了kcp2kHeader,以支持区分可靠传输和非可靠传输
+## kcp2k Encoding
+Adds a kcp2kHeader on top of the original transmission packet to support distinguishing between reliable and unreliable transmissions
 
-| 1字节     | 4字节    |
- |---------|--------|
-| channel | cookie | 
+| 1 byte  | 4 bytes  |
+|---------|----------|
+| channel | cookie   | 
 
 channel:
-* 1 可靠传输
-* 2 非可靠传输
+* 1 Reliable Transmission
+* 2 Unreliable Transmission
 
-cookie是连接建立后的“凭据”，官方说法是的作用是：
+The cookie is a "credential" after the connection is established, and its official purpose is:
 ```
 generate a random cookie for this connection to avoid UDP spoofing
 ```
 
-### 可靠传输编码
-mirror kcp支持握手和关闭，传输data的第一个字节为控制位
+### Reliable Transmission Encoding
+Mirror kcp supports handshake and close, with the first byte of the transmitted data being the control bit
 ```go
 type Kcp2kOpcode byte
 
 const (
-	Hello      Kcp2kOpcode = 1
-	Ping       Kcp2kOpcode = 2
-	Data       Kcp2kOpcode = 3
-	Disconnect Kcp2kOpcode = 4
+    Hello      Kcp2kOpcode = 1
+    Ping       Kcp2kOpcode = 2
+    Data       Kcp2kOpcode = 3
+    Disconnect Kcp2kOpcode = 4
 )
 ```
-最终udp发送出去的原始编码为:
+The final raw encoding sent via udp is:
 
-| 1字节  | 4字节    | 24字节         | 1字节| N字节|
-|------|--------|--------------|-------|-------|
-| 0x01 | cookie | kcp protocol |Kcp2kOpcode|data|
+| 1 byte  | 4 bytes  | 24 bytes        | 1 byte       | N bytes |
+|---------|----------|-----------------|--------------|---------|
+| 0x01    | cookie   | kcp protocol    | Kcp2kOpcode  | data    |
 
+### Unreliable Transmission Encoding
+Unreliable transmission encoding is simpler, as follows:
 
-### 非可靠传输编码
-非可靠传输编码比较简单，如下：
+| 1 byte  | 4 bytes  | N bytes |
+|---------|----------|---------|
+| 0x02    | cookie   | data    |
 
-| 1字节  | 4字节    |  N字节|
-|------|--------|-------|
-| 0x02 | cookie | data|
-
-## Thanks
-需要[kcp-go](https://github.com/xtaci/kcp-go)的UDPSession暴露出读kcp整一条数据的接口<br>
-所以就fork修改了一下: https://github.com/0990/kcp-go
+## Additional Information
+[kcp-go](https://github.com/xtaci/kcp-go) need  exposing the interface to read a whole kcp data packet from the UDPSession<br>
+So, I forked and modified it: https://github.com/0990/kcp-go
